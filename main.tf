@@ -87,6 +87,7 @@ data "aws_iam_policy" "ebs_csi_policy" {
 }
 
 module "irsa-ebs-csi" {
+  depends_on = [module.eks]
   source  = "terraform-aws-modules/iam/aws//modules/iam-assumable-role-with-oidc"
   version = "4.7.0"
 
@@ -105,5 +106,22 @@ resource "aws_eks_addon" "ebs-csi" {
   tags = {
     "eks_addon" = "ebs-csi"
     "terraform" = "true"
+  }
+}
+
+
+resource "null_resource" "kubectl" {
+  depends_on = [module.irsa-ebs-csi]
+  provisioner "local-exec" {
+        command = "aws eks --region us-east-1 update-kubeconfig --name ${local.cluster_name}"
+  }
+}
+
+resource "null_resource" "deploy_kubecost" {
+  depends_on = [null_resource.kubectl]
+  provisioner "local-exec" {
+    command = <<-EOT
+      helm upgrade -i kubecost oci://public.ecr.aws/kubecost/cost-analyzer --version 1.99.0 --namespace kubecost --create-namespace -f https://raw.githubusercontent.com/kubecost/cost-analyzer-helm-chart/develop/cost-analyzer/values-eks-cost-monitoring.yaml
+    EOT
   }
 }
